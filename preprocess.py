@@ -11,10 +11,21 @@ import sys
 # but we need to create multiple processes because CPython GIL
 nltk.download("words")
 
+# Special token used to prevent filtering out document title
+DOC_TITLE_SPECIAL_TOKEN = "[DOCUMENT_TITLE="
 ENGLISH_WORDS = set(corpus.words.words())
 LEMMATIZER = None  # Global variable to hold the lemmatizer in each worker
 
-# Quality filters
+
+# Config
+DO_LEMMATIZE = False  # should we lemmatize words?
+DO_REMOVE_SPECIAL_CHARS_AND_NUMBERS = True
+DO_REMOVE_URLS = True  # todo: currently DO_REMOVE_SPECIAL_CHARS_AND_NUMBERS, causes urls to be added in a broken manner since that function removes semicolons and backslashes
+
+
+INCLUDE_DOCUMENT_TITLE = True  # set to true in order to leave the document title special token in output text
+
+## Quality filters
 MINIMUM_DOCUMENT_LENGTH = 100  # do not keep documents with less than 100 chars
 MINIMUM_LEGIBILITY_RATIO = 0.35  # do not keep documents where more than this many words (as a percentage) are illegible
 
@@ -22,7 +33,8 @@ MINIMUM_LEGIBILITY_RATIO = 0.35  # do not keep documents where more than this ma
 def initialize_worker_deps():
     """Initialize the lemmatizer and corpus word set for each worker process."""
     global LEMMATIZER
-    LEMMATIZER = nltk.WordNetLemmatizer()
+    if DO_LEMMATIZE:
+        LEMMATIZER = nltk.WordNetLemmatizer()
 
 
 def load_document_paths(root_dir: str, allow_extensions=[".md", ".txt"]):
@@ -61,30 +73,51 @@ def remove_urls(text: str) -> str:
     )
 
 
-def preprocess_text(text: str) -> str:
+def preprocess_text(document_title: None, text: str) -> str:
     """Preprocess text by removing special chars and numbers, tokenizing, lemmatizing, and removing stopwords."""
-    tokens = remove_urls(text)
-    tokens = remove_special_chars_and_numbers(tokens)
+
+    # include special document token if desired
+    if document_title is not None:
+        document_special_token = f"{DOC_TITLE_SPECIAL_TOKEN}" + document_title + "]"
+
+    tokens = text
+    if DO_REMOVE_URLS:
+        tokens = remove_urls(tokens)
+    if DO_REMOVE_SPECIAL_CHARS_AND_NUMBERS:
+        tokens = remove_special_chars_and_numbers(tokens)
+
     tokens = tokenize_text(tokens)
-    tokens = lemmatize_tokens(tokens)
+    if DO_LEMMATIZE:
+        tokens = lemmatize_tokens(tokens)
+
     tokens = [token.lower() for token in tokens]
-    return tokens
+
+    # todo: find better way to prepend the document title here, this is O(n) operation (pretty sure)
+    final_tokens = []
+    if document_title is not None:
+        final_tokens.append(document_special_token)
+    final_tokens.extend(tokens)
+    return final_tokens
 
 
 def process_document(document: Tuple[str, str]) -> List[str] | None:
     """Process a single document and return preprocessed tokens."""
     title, path = document
     with open(path, "r", encoding="utf-8") as doc:
-        doc_tokens = preprocess_text(doc.read())
+        doc_tokens = preprocess_text(
+            document_title=title if INCLUDE_DOCUMENT_TITLE else None, text=doc.read()
+        )  # append title to start of line if enabled
     return doc_tokens
 
 
 def filter_low_quality_documents(
     preprocessed_documents: List[str], legibility_ratio=0.25, min_len=100
 ) -> List[str]:
-    """Returns a new array containg only high quality documents
-    Documents which contain less than `legibility_ratio` legible englishwords are removed.
-    Documents which have less than `min_len` characters are removed"""
+    """
+    Returns a new array containg only high quality documents
+    Documents which contain less than `legibility_ratio` legible english words are removed.
+    Documents which have less than `min_len` characters are removed
+    """
     filtered_documents = []
     total_legibility = 0
     for document in preprocessed_documents:
@@ -113,10 +146,9 @@ def multi_process_extract_and_preprocess_documents(
 ) -> List[List[str]]:
     # Use a pool with initializer to create the lemmatizer only once per worker
     with Pool(processes=num_workers, initializer=initialize_worker_deps) as pool:
-        # Process all documents in parallel
         preprocessed_documents = pool.map(process_document, document_paths)
 
-    # Filter our documents that were too short to be processed
+    # Filter out low quality documents
     before_filter = len(preprocessed_documents)
     preprocessed_documents = filter_low_quality_documents(
         preprocessed_documents, MINIMUM_LEGIBILITY_RATIO, MINIMUM_DOCUMENT_LENGTH
@@ -131,7 +163,7 @@ def multi_process_extract_and_preprocess_documents(
 def write_processed_documents(
     preprocessed_documents: List[List[str]], output_file: str
 ):
-    with open(output_file, "w+") as file:
+    with open(output_file, "w+", encoding="utf-8") as file:
         for document in preprocessed_documents:
             doc_str = " ".join(document)
             file.write(doc_str + "\n")
