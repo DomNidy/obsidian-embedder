@@ -15,7 +15,7 @@ _**Note:** Currently, creating multiple chunks from a single document is not sup
 **Example:**
 
 ```sh
-python preprocess.py C:/vault -mlr 0.30 -mdl 150 -bw tags review srdue srease excalidraw -o preprocessed_vault.txt
+python preprocess.py C:/vault -mlr 0.30 -mdl 150 -bw tags review srdue srease excalidraw --include-document-title -o preprocessed_vault.txt
 ```
 
 ## Step 2: Embed and bin documents
