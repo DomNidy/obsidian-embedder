@@ -1,10 +1,13 @@
 from argparse import ArgumentParser
 from dataclasses import dataclass
+from time import time
+import os
 
 # Default values for arguments
 _default_processes = 1
 _default_minimum_document_length = 100
 _default_legibility_ratio = 0.35
+_default_output = f"{str(int(time()))}_preprocessed_vault.txt"
 
 parser = ArgumentParser(
     prog="preprocess",
@@ -13,14 +16,21 @@ parser = ArgumentParser(
 
 # Input and Output Options
 parser.add_argument(
-    "directory", help="Directory to your Obsidian vault (which contains .md files)"
+    "directory",
+    help="Directory to your Obsidian vault (which contains .md files)",
+)
+parser.add_argument(
+    "-o",
+    "--output",
+    help="Where to save the processsed documents?",
+    default=_default_output,
 )
 parser.add_argument(
     "-p",
     "--processes",
     type=int,
     default=_default_processes,
-    help="The number of processes to run in parallel (more = faster)",
+    help="The number of processes to run in parallel (higher may be faster depending on number of documents)",
 )
 
 # Text Preprocessing Options
@@ -76,13 +86,18 @@ class PreprocessConfig:
     Configuration options for the document preprocessing step.
     """
 
-    # The obsidian vault
+    # Path to Obsidian vault
     directory: str
+    # Path to the output file
+    output: str
+    # Number of processes to run in parallel
     processes: int
     lemmatize_words: bool
     remove_special_chars_and_numbers: bool
     remove_urls: bool
+    # Should the title of the document (file name) be included in its chunks?
     include_document_title: bool
+    # Remove documents with less than `minimum_document_length`` characters
     minimum_document_length: int
     minimum_legibility_ratio: float
 
@@ -95,6 +110,13 @@ def get_preprocesser_config() -> PreprocessConfig:
 
     # Get Obsidian vault directory & worker count
     directory = args.directory
+    if not _validate_obsidian_vault_path(directory):
+        parser.error("Invalid obsidian vault path")
+
+    output = args.output
+    if not _validate_output_path(output):
+        parser.error("Invalid output path")
+
     processes = args.processes
 
     # Parse text pre-processing options
@@ -122,6 +144,7 @@ def get_preprocesser_config() -> PreprocessConfig:
     # Create and return the config object
     return PreprocessConfig(
         directory=directory,
+        output=output,
         processes=processes,
         lemmatize_words=lemmatize_words,
         remove_special_chars_and_numbers=remove_special_chars_and_numbers,
@@ -136,6 +159,7 @@ def print_config(config: PreprocessConfig):
     """Print the PreprocessConfig to the console."""
     print("Preprocessing Configuration:")
     print(f"  Directory: {config.directory}")
+    print(f"  Output File: {config.output}")
     print(f"  Processes: {config.processes}")
     print(f"  Lemmatize Words: {config.lemmatize_words}")
     print(
@@ -157,6 +181,40 @@ def _handle_conflicting_url_removal(
         )
         return True
     return remove_urls
+
+
+def _validate_obsidian_vault_path(obsidian_vault_path: str) -> bool:
+    if not os.path.isdir(obsidian_vault_path):
+        print(
+            f"ERROR: The path to your Obsidian vault '{obsidian_vault_path}' is invalid or does not exist."
+        )
+        return False
+    return True
+
+
+def _validate_output_path(output_path: str) -> bool:
+    """Validate that output_path is valid (if we can create a file at that path)"""
+    output_dir = os.path.dirname(output_path) or "."
+
+    # Ensure that the parent directory of output_path exists
+    if not os.path.isdir(output_dir):
+        print(
+            f"ERROR: The parent directory for the output path '{output_dir}' does not exist."
+        )
+        return False
+
+    # To test if we can write to the file, try opening it in append mode
+    # this will create the file if it doesn't already exist
+    try:
+        with open(output_path, "a"):
+            pass
+    except IOError:
+        print(
+            f"ERROR: The output path '{output_path}' is not a valid file path or is not writable."
+        )
+        return False
+
+    return True
 
 
 def _validate_positive_int(value: int, arg_name: str, default_value: int) -> int:

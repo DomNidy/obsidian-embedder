@@ -1,48 +1,26 @@
 import os
 import re
+from time import time
 import nltk
 from nltk import corpus
 from typing import List, Tuple
 from multiprocessing import Pool
-from preprocess_config import get_preprocesser_config
+from preprocess_config import get_preprocesser_config, print_config, PreprocessConfig
 
 # This is forced to re-run in each process
-# but we need to create multiple processes because CPython GIL
 nltk.download("words", quiet=True)
 
-config = get_preprocesser_config()
-
-
-# Special token used to prevent filtering out document title
-DOC_TITLE_SPECIAL_TOKEN = "[DOCUMENT_TITLE="
 ENGLISH_WORDS = set(corpus.words.words())
-LEMMATIZER = None  # Global variable to hold the lemmatizer in each worker
-
-# Config
-DO_LEMMATIZE = config.lemmatize_words
-DO_REMOVE_SPECIAL_CHARS_AND_NUMBERS = config.remove_special_chars_and_numbers
-DO_REMOVE_URLS = (
-    config.remove_urls
-)  # todo: fix remove_urls and remove_special_chars_and_numbers conflict
+DOC_TITLE_SPECIAL_TOKEN = (
+    "[DOCUMENT_TITLE="  # Special token used to prevent filtering out document title
+)
+LEMMATIZER = None  # Global variable to hold the lemmatizer in **each process**
 
 
-INCLUDE_DOCUMENT_TITLE = (
-    config.include_document_title
-)  # set to true in order to leave the document title special token in output text
-
-## Quality filters
-MINIMUM_DOCUMENT_LENGTH = (
-    config.minimum_document_length
-)  # do not keep documents with less than 100 chars
-MINIMUM_LEGIBILITY_RATIO = (
-    config.minimum_legibility_ratio
-)  # do not keep documents where more than this many words (as a percentage) are illegible
-
-
-def initialize_worker_deps():
+def initialize_worker_deps(lemmatize_words: bool):
     """Initialize the lemmatizer and corpus word set for each worker process."""
     global LEMMATIZER
-    if DO_LEMMATIZE:
+    if lemmatize_words:
         LEMMATIZER = nltk.WordNetLemmatizer()
 
 
@@ -82,7 +60,13 @@ def remove_urls(text: str) -> str:
     )
 
 
-def preprocess_text(document_title: None, text: str) -> str:
+def preprocess_text(
+    document_title: None,
+    text: str,
+    should_remove_urls: bool = True,
+    should_remove_special_chars_and_numbers: bool = True,
+    should_lemmatize_words: bool = False,
+) -> str:
     """Preprocess text by removing special chars and numbers, tokenizing, lemmatizing, and removing stopwords."""
 
     # include special document token if desired
@@ -90,18 +74,18 @@ def preprocess_text(document_title: None, text: str) -> str:
         document_special_token = f"{DOC_TITLE_SPECIAL_TOKEN}" + document_title + "]"
 
     tokens = text
-    if DO_REMOVE_URLS:
+    if should_remove_urls:
         tokens = remove_urls(tokens)
-    if DO_REMOVE_SPECIAL_CHARS_AND_NUMBERS:
+    if should_remove_special_chars_and_numbers:
         tokens = remove_special_chars_and_numbers(tokens)
 
     tokens = tokenize_text(tokens)
-    if DO_LEMMATIZE:
+    if should_lemmatize_words:
         tokens = lemmatize_tokens(tokens)
 
     tokens = [token.lower() for token in tokens]
 
-    # todo: find better way to prepend the document title here, this is O(n) operation (pretty sure)
+    # todo: find a better way to prepend the document title here, this is O(n) operation (pretty sure)
     final_tokens = []
     if document_title is not None:
         final_tokens.append(document_special_token)
@@ -109,13 +93,24 @@ def preprocess_text(document_title: None, text: str) -> str:
     return final_tokens
 
 
-def process_document(document: Tuple[str, str]) -> List[str] | None:
+def process_document(
+    document: Tuple[str, str],
+    include_document_title: bool = False,
+    should_remove_urls: bool = True,
+    should_remove_special_chars_and_numbers: bool = True,
+    should_lemmatize_words: bool = True,
+) -> List[str] | None:
     """Process a single document and return preprocessed tokens."""
     title, path = document
+
     with open(path, "r", encoding="utf-8") as doc:
         doc_tokens = preprocess_text(
-            document_title=title if INCLUDE_DOCUMENT_TITLE else None, text=doc.read()
-        )  # append title to start of line if enabled
+            document_title=title if include_document_title else None,
+            text=doc.read(),
+            should_remove_urls=should_remove_urls,
+            should_remove_special_chars_and_numbers=should_remove_special_chars_and_numbers,
+            should_lemmatize_words=should_lemmatize_words,
+        )
     return doc_tokens
 
 
@@ -150,28 +145,6 @@ def filter_low_quality_documents(
     return filtered_documents
 
 
-def multi_process_extract_and_preprocess_documents(
-    document_paths: List[Tuple[str, str]], num_workers: int = 4
-) -> List[List[str]]:
-    """
-    Use multiple worker processes to process multiple documents concurrently
-    """
-    # Use a pool with initializer to create the lemmatizer only once per worker
-    with Pool(processes=num_workers, initializer=initialize_worker_deps) as pool:
-        preprocessed_documents = pool.map(process_document, document_paths)
-
-    # Filter out low quality documents
-    before_filter = len(preprocessed_documents)
-    preprocessed_documents = filter_low_quality_documents(
-        preprocessed_documents, MINIMUM_LEGIBILITY_RATIO, MINIMUM_DOCUMENT_LENGTH
-    )
-    after_filter = len(preprocessed_documents)
-
-    print(f"Filtered out {before_filter-after_filter} low quality documents.")
-
-    return preprocessed_documents
-
-
 def write_processed_documents(
     preprocessed_documents: List[List[str]], output_file: str
 ):
@@ -181,18 +154,64 @@ def write_processed_documents(
             file.write(doc_str + "\n")
 
 
+def multi_process_extract_and_preprocess_documents(
+    document_paths: List[Tuple[str, str]], config: PreprocessConfig
+) -> List[List[str]]:
+    """
+    Use multiple worker processes to process multiple documents concurrently
+    """
+
+    # Create tuples of (document_path, include_document_title) for each document path
+    # This ensures the .map method correctly receives both arguments
+    process_document_args = [
+        (
+            doc_path,
+            config.include_document_title,
+            config.remove_urls,
+            config.remove_special_chars_and_numbers,
+            config.lemmatize_words,
+        )
+        for doc_path in document_paths
+    ]
+
+    # Use a pool with initializer to create the lemmatizer only once per worker
+    with Pool(
+        processes=config.processes,
+        initializer=initialize_worker_deps,
+        initargs=(config.lemmatize_words,),
+    ) as pool:
+        preprocessed_documents = pool.starmap(
+            process_document,
+            process_document_args,
+        )
+
+    # Filter out low quality documents
+    before_filter = len(preprocessed_documents)
+    preprocessed_documents = filter_low_quality_documents(
+        preprocessed_documents,
+        config.minimum_legibility_ratio,
+        config.minimum_document_length,
+    )
+    after_filter = len(preprocessed_documents)
+
+    print(f"Filtered out {before_filter-after_filter} low quality documents.")
+
+    return preprocessed_documents
+
+
 if __name__ == "__main__":
-    pass
-    # document_paths = load_document_paths(
-    #     "C:\\vault"
-    # )  # load documents from obsidian vault
-    # num_processes = int(sys.argv[1]) if len(sys.argv) > 1 else 4
+    config = get_preprocesser_config()
+    print_config(config)
 
-    # start = time.time()
-    # preprocessed_documents = multi_process_extract_and_preprocess_documents(
-    #     document_paths, num_processes
-    # )
-    # end = time.time()
+    # load documents from obsidian vault
+    document_paths = load_document_paths(config.directory)
+    num_processes = config.processes
 
-    # print(f"Completed in {end - start:.7f} seconds with {num_processes} process(es)")
-    # write_processed_documents(preprocessed_documents, "preprocessed_docs.txt")
+    start = time()
+    preprocessed_documents = multi_process_extract_and_preprocess_documents(
+        document_paths, config=config
+    )
+    end = time()
+
+    print(f"Completed in {end - start:.7f} seconds with {num_processes} process(es)")
+    write_processed_documents(preprocessed_documents, config.output)
