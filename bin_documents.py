@@ -1,7 +1,9 @@
+from typing import List, Optional, Set
 from sentence_transformers import SentenceTransformer
 import torch as t
 import sys
 import textwrap  # For pretty printing
+import re
 
 device = "cuda" if t.cuda.is_available() else "cpu"
 
@@ -11,7 +13,7 @@ model = SentenceTransformer(MODEL_NAME, device=device)
 
 # Parameters
 MINIMUM_SIMILARITY_TO_BIN = 0.5
-TOP_K = 25  # Number of most similar documents to include in each bin
+TOP_K = 25  # Number of most similar documents to include in each bin (MAX BIN SIZE)
 MAX_LINE_WIDTH = 155  # Line width for wrapping text in output
 
 
@@ -61,11 +63,51 @@ def bin_documents(similarities: t.Tensor) -> list:
     return bins
 
 
+def get_document_titles_from_bin(
+    bin: Set[int], sentences: List[str]
+) -> List[Optional[str]]:
+    """
+    Extracts document titles from a single bin using the DOCUMENT_TITLE special token.
+
+    This function attempts to match document title special token with the pattern '[DOCUMENT_TITLE=*]'
+    in each document within the bin. Note: this only works if the preprocessor config used to create
+    the document chunks set the 'include document title' special token option to true.
+
+    Parameters:
+        bin (Set[int]): A Set of document indices within a bin.
+        sentences (List[str]): List of all processed document chunks, we will index into these to retrieve the document text.
+
+    Returns:
+        List[Optional[str]]: A list of document titles if found, or None if a title is missing.
+    """
+    document_titles = []
+    document_title_pattern = r"\[DOCUMENT_TITLE=(.*?)\]"
+
+    for doc_idx in bin:
+        sentence = sentences[doc_idx]
+        match = re.match(document_title_pattern, sentence)
+
+        if match:
+            document_titles.append(
+                match.group(1)
+            )  # Extract the title within the parentheses
+        else:
+            document_titles.append(None)  # No title found for this document index
+
+    if all(title is None for title in document_titles):
+        print(
+            "No document titles found. Ensure the preprocessor uses the 'include document title' special token option."
+        )
+
+    return document_titles
+
+
 def write_binned_output(bins: list, sentences: list, output_file: str):
     """Write binned output to a file with formatted document content."""
     with open(output_file, "w") as file:
         for bin_index, bin in enumerate(bins, start=1):
             file.write(f"Bin {bin_index} (size={len(bin)}): {bin}\n")
+
             for document_index in bin:
                 file.write(f"\tDocument {document_index}:\n")
                 file.write(
@@ -97,4 +139,10 @@ if __name__ == "__main__":
     embeddings = model.encode(sentences)
     similarities = compute_similarity_matrix(embeddings)
     bins = bin_documents(similarities)
+
+    for bin in bins:
+        print(f"Bin: {bin}")
+        for doc_title in get_document_titles_from_bin(bin, sentences):
+            print(f'\t"{doc_title}"')
+
     write_binned_output(bins, sentences, output_path)
