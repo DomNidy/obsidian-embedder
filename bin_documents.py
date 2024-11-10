@@ -1,5 +1,6 @@
 from sentence_transformers import SentenceTransformer
 import torch as t
+import sys
 import textwrap  # For pretty printing
 
 device = "cuda" if t.cuda.is_available() else "cpu"
@@ -82,8 +83,18 @@ def write_binned_output(bins: list, sentences: list, output_file: str):
 
 
 if __name__ == "__main__":
-    sentences = load_sentences("preprocessed_docs.txt")
+    # Path to the preprocessed document text file containing all the document chunks
+    document_chunks_file_path = str(sys.argv[1]) if len(sys.argv) > 1 else None
+    # Path to write the binned chunks to
+    output_path = str(sys.argv[2]) if len(sys.argv) > 2 else "binned.txt"
+
+    if not document_chunks_file_path:
+        raise FileNotFoundError(
+            "Invalid path to document chunk file:", document_chunks_file_path
+        )
+
+    sentences = load_sentences(document_chunks_file_path)
     embeddings = model.encode(sentences)
     similarities = compute_similarity_matrix(embeddings)
     bins = bin_documents(similarities)
-    write_binned_output(bins, sentences, "binned.txt")
+    write_binned_output(bins, sentences, output_path)

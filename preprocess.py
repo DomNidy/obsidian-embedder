@@ -3,7 +3,7 @@ import re
 from time import time
 import nltk
 from nltk import corpus
-from typing import List, Tuple
+from typing import List, Optional, Set, Tuple
 from multiprocessing import Pool
 from preprocess_config import get_preprocesser_config, print_config, PreprocessConfig
 
@@ -60,37 +60,54 @@ def remove_urls(text: str) -> str:
     )
 
 
+def remove_blacklisted_words(
+    tokens: List[str], blacklisted_words: Set[str]
+) -> List[str]:
+    """Returns a new list of tokens, excluding all words in `blacklisted_words`"""
+    return [word for word in tokens if word not in blacklisted_words]
+
+
 def preprocess_text(
-    document_title: None,
+    document_title: Optional[str],
     text: str,
     should_remove_urls: bool = True,
     should_remove_special_chars_and_numbers: bool = True,
     should_lemmatize_words: bool = False,
+    blacklisted_words: Optional[Set[str]] = None,
 ) -> str:
     """Preprocess text by removing special chars and numbers, tokenizing, lemmatizing, and removing stopwords."""
+    tokens = text
 
-    # include special document token if desired
+    # Create special document title token if desired
     if document_title is not None:
         document_special_token = f"{DOC_TITLE_SPECIAL_TOKEN}" + document_title + "]"
 
-    tokens = text
+    # Filter by removing urls and special chars if desireed
     if should_remove_urls:
         tokens = remove_urls(tokens)
     if should_remove_special_chars_and_numbers:
         tokens = remove_special_chars_and_numbers(tokens)
 
+    # Split text into list of tokens
     tokens = tokenize_text(tokens)
     if should_lemmatize_words:
         tokens = lemmatize_tokens(tokens)
 
+    # Lowercase all tokens
     tokens = [token.lower() for token in tokens]
 
-    # todo: find a better way to prepend the document title here, this is O(n) operation (pretty sure)
-    final_tokens = []
+    # Remove blacklisted words if any were specified
+    tokens = (
+        remove_blacklisted_words(tokens, blacklisted_words)
+        if blacklisted_words
+        else tokens
+    )
+
+    # If requested, prepend the document title special token
     if document_title is not None:
-        final_tokens.append(document_special_token)
-    final_tokens.extend(tokens)
-    return final_tokens
+        tokens.insert(0, document_special_token)
+
+    return tokens
 
 
 def process_document(
@@ -99,8 +116,20 @@ def process_document(
     should_remove_urls: bool = True,
     should_remove_special_chars_and_numbers: bool = True,
     should_lemmatize_words: bool = True,
+    blacklisted_words: Optional[Set[str]] = None,
 ) -> List[str] | None:
-    """Process a single document and return preprocessed tokens."""
+    """
+    Processes a single document by tokenizing it, performing a sequence of filtering operations on it and
+    then enriching it with optional special tokens. Returns a list of tokens.
+
+    The filtering operations performed depend on the config (parameters), and are as follows:
+    - remove urls
+    - remove numbers and special characters
+    - lemmatize words
+
+    'special tokens' include:
+    - document title (prepend a token containing the file name from which the tokens were produced)
+    """
     title, path = document
 
     with open(path, "r", encoding="utf-8") as doc:
@@ -110,6 +139,7 @@ def process_document(
             should_remove_urls=should_remove_urls,
             should_remove_special_chars_and_numbers=should_remove_special_chars_and_numbers,
             should_lemmatize_words=should_lemmatize_words,
+            blacklisted_words=blacklisted_words,
         )
     return doc_tokens
 
@@ -170,6 +200,7 @@ def multi_process_extract_and_preprocess_documents(
             config.remove_urls,
             config.remove_special_chars_and_numbers,
             config.lemmatize_words,
+            config.blacklisted_words,
         )
         for doc_path in document_paths
     ]

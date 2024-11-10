@@ -1,13 +1,13 @@
 from argparse import ArgumentParser
 from dataclasses import dataclass
-from time import time
 import os
+from typing import List, Set
 
 # Default values for arguments
 _default_processes = 1
 _default_minimum_document_length = 100
 _default_legibility_ratio = 0.35
-_default_output = f"{str(int(time()))}_preprocessed_vault.txt"
+_default_output = f"preprocessed_vault.txt"
 
 parser = ArgumentParser(
     prog="preprocess",
@@ -35,33 +35,60 @@ parser.add_argument(
 
 # Text Preprocessing Options
 parser.add_argument(
-    "-lw",
     "--lemmatize-words",
+    dest="lemmatize_words",
     action="store_true",
-    default=False,
-    help="Lemmatize words: Reduce words to their base form (e.g., 'cats' -> 'cat', 'running' -> 'run')",
+    help="Enable lemmatization: reduce words to their base form (e.g., 'cats' -> 'cat', 'running' -> 'run').",
 )
 parser.add_argument(
-    "-rsc",
+    "--no-lemmatize-words",
+    dest="lemmatize_words",
+    action="store_false",
+    help="Disable lemmatization.",
+)
+parser.set_defaults(lemmatize_words=False)
+
+parser.add_argument(
     "--remove-special-chars-and-numbers",
+    dest="remove_special_chars_and_numbers",
     action="store_true",
-    default=True,
-    help="Remove special characters and numbers from the text (Note: Setting this to true will corrupt URLs, irrespective of the --remove-urls option.)",
+    help="Remove special characters and numbers from the text.",
 )
 parser.add_argument(
-    "-ru",
+    "--no-remove-special-chars-and-numbers",
+    dest="remove_special_chars_and_numbers",
+    action="store_false",
+    help="Keep special characters and numbers in the text.",
+)
+parser.set_defaults(remove_special_chars_and_numbers=True)
+
+parser.add_argument(
     "--remove-urls",
-    default=True,
+    dest="remove_urls",
     action="store_true",
-    help="Remove URLs from the text",
+    help="Remove URLs from the text.",
 )
 parser.add_argument(
-    "-idt",
-    "--include-document-title",
-    default=False,
-    action="store_true",
-    help="Include the document title as a special token in the output text chunks",
+    "--no-remove-urls",
+    dest="remove_urls",
+    action="store_false",
+    help="Keep URLs in the text.",
 )
+parser.set_defaults(remove_urls=True)
+
+parser.add_argument(
+    "--include-document-title",
+    dest="include_document_title",
+    action="store_true",
+    help="Include the document title as a special token in the output text chunks.",
+)
+parser.add_argument(
+    "--no-include-document-title",
+    dest="include_document_title",
+    action="store_false",
+    help="Exclude the document title from the output text chunks.",
+)
+parser.set_defaults(include_document_title=False)
 
 # Quality Filtering Options
 parser.add_argument(
@@ -71,6 +98,16 @@ parser.add_argument(
     default=_default_minimum_document_length,
     help="Minimum number of characters for a document to be kept",
 )
+
+parser.add_argument(
+    "-bw",
+    "--blacklist-words",
+    nargs="+",
+    default=[],
+    dest="blacklisted_words",
+    help="List of words to blacklist and remove from the text. Pass words separated by spaces. Example: --blacklist-words word1 word2. Note: The blacklisted words are matched AFTER the tokens have been filtered",
+)
+
 parser.add_argument(
     "-mlr",
     "--minimum-legibility-ratio",
@@ -100,6 +137,9 @@ class PreprocessConfig:
     # Remove documents with less than `minimum_document_length`` characters
     minimum_document_length: int
     minimum_legibility_ratio: float
+    # Remove these words from documents during preprocessing
+    # Note: The blacklisted words are matched AFTER the tokens have been filtered
+    blacklisted_words: Set["str"]
 
 
 def get_preprocesser_config() -> PreprocessConfig:
@@ -140,6 +180,7 @@ def get_preprocesser_config() -> PreprocessConfig:
         "minimum_legibility_ratio",
         default_value=_default_legibility_ratio,
     )
+    blacklisted_words = set([word.lower() for word in args.blacklisted_words])
 
     # Create and return the config object
     return PreprocessConfig(
@@ -152,6 +193,7 @@ def get_preprocesser_config() -> PreprocessConfig:
         include_document_title=include_document_title,
         minimum_document_length=minimum_document_length,
         minimum_legibility_ratio=minimum_legibility_ratio,
+        blacklisted_words=blacklisted_words,
     )
 
 
@@ -169,6 +211,9 @@ def print_config(config: PreprocessConfig):
     print(f"  Include Document Title: {config.include_document_title}")
     print(f"  Minimum Document Length: {config.minimum_document_length}")
     print(f"  Minimum Legibility Ratio: {config.minimum_legibility_ratio}")
+    print(
+        f"  Blacklisted Words: {config.blacklisted_words if config.blacklisted_words else '{}'}"
+    )
 
 
 def _handle_conflicting_url_removal(
