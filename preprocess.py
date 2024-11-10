@@ -4,30 +4,39 @@ import nltk
 from nltk import corpus
 from typing import List, Tuple
 from multiprocessing import Pool
-import time
-import sys
+from preprocess_config import get_preprocesser_config
 
 # This is forced to re-run in each process
 # but we need to create multiple processes because CPython GIL
-nltk.download("words")
+nltk.download("words", quiet=True)
+
+config = get_preprocesser_config()
+
 
 # Special token used to prevent filtering out document title
 DOC_TITLE_SPECIAL_TOKEN = "[DOCUMENT_TITLE="
 ENGLISH_WORDS = set(corpus.words.words())
 LEMMATIZER = None  # Global variable to hold the lemmatizer in each worker
 
-
 # Config
-DO_LEMMATIZE = False  # should we lemmatize words?
-DO_REMOVE_SPECIAL_CHARS_AND_NUMBERS = True
-DO_REMOVE_URLS = True  # todo: currently DO_REMOVE_SPECIAL_CHARS_AND_NUMBERS, causes urls to be added in a broken manner since that function removes semicolons and backslashes
+DO_LEMMATIZE = config.lemmatize_words
+DO_REMOVE_SPECIAL_CHARS_AND_NUMBERS = config.remove_special_chars_and_numbers
+DO_REMOVE_URLS = (
+    config.remove_urls
+)  # todo: fix remove_urls and remove_special_chars_and_numbers conflict
 
 
-INCLUDE_DOCUMENT_TITLE = True  # set to true in order to leave the document title special token in output text
+INCLUDE_DOCUMENT_TITLE = (
+    config.include_document_title
+)  # set to true in order to leave the document title special token in output text
 
 ## Quality filters
-MINIMUM_DOCUMENT_LENGTH = 100  # do not keep documents with less than 100 chars
-MINIMUM_LEGIBILITY_RATIO = 0.35  # do not keep documents where more than this many words (as a percentage) are illegible
+MINIMUM_DOCUMENT_LENGTH = (
+    config.minimum_document_length
+)  # do not keep documents with less than 100 chars
+MINIMUM_LEGIBILITY_RATIO = (
+    config.minimum_legibility_ratio
+)  # do not keep documents where more than this many words (as a percentage) are illegible
 
 
 def initialize_worker_deps():
@@ -144,6 +153,9 @@ def filter_low_quality_documents(
 def multi_process_extract_and_preprocess_documents(
     document_paths: List[Tuple[str, str]], num_workers: int = 4
 ) -> List[List[str]]:
+    """
+    Use multiple worker processes to process multiple documents concurrently
+    """
     # Use a pool with initializer to create the lemmatizer only once per worker
     with Pool(processes=num_workers, initializer=initialize_worker_deps) as pool:
         preprocessed_documents = pool.map(process_document, document_paths)
@@ -170,16 +182,17 @@ def write_processed_documents(
 
 
 if __name__ == "__main__":
-    document_paths = load_document_paths(
-        "C:\\vault"
-    )  # load documents from obsidian vault
-    num_processes = int(sys.argv[1]) if len(sys.argv) > 1 else 4
+    pass
+    # document_paths = load_document_paths(
+    #     "C:\\vault"
+    # )  # load documents from obsidian vault
+    # num_processes = int(sys.argv[1]) if len(sys.argv) > 1 else 4
 
-    start = time.time()
-    preprocessed_documents = multi_process_extract_and_preprocess_documents(
-        document_paths, num_processes
-    )
-    end = time.time()
+    # start = time.time()
+    # preprocessed_documents = multi_process_extract_and_preprocess_documents(
+    #     document_paths, num_processes
+    # )
+    # end = time.time()
 
-    print(f"Completed in {end - start:.7f} seconds with {num_processes} process(es)")
-    write_processed_documents(preprocessed_documents, "preprocessed_docs.txt")
+    # print(f"Completed in {end - start:.7f} seconds with {num_processes} process(es)")
+    # write_processed_documents(preprocessed_documents, "preprocessed_docs.txt")

@@ -2,9 +2,11 @@ from sentence_transformers import SentenceTransformer
 import torch as t
 import textwrap  # For pretty printing
 
+device = "cuda" if t.cuda.is_available() else "cpu"
+
 # Load a pretrained Sentence Transformer model
 MODEL_NAME = "all-MiniLM-L6-v2"
-model = SentenceTransformer(MODEL_NAME)
+model = SentenceTransformer(MODEL_NAME, device=device)
 
 # Parameters
 MINIMUM_SIMILARITY_TO_BIN = 0.5
@@ -79,7 +81,6 @@ def write_binned_output(bins: list, sentences: list, output_file: str):
     print(f"Found {len(bins)} unique categories.")
 
 
-# Main execution
 if __name__ == "__main__":
     sentences = load_sentences("preprocessed_docs.txt")
     embeddings = model.encode(sentences)
