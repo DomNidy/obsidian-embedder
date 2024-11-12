@@ -24,12 +24,17 @@ def load_sentences(filepath: str) -> list:
 
 
 def compute_similarity_matrix(embeddings) -> t.Tensor:
-    """Compute similarity matrix and set diagonal to a low value to ignore self-similarities."""
+    """
+    Compute similarity matrix and set diagonal to a low value to ignore self-similarities.
+    Returns a square tensor of shape (num_document_chunks, num_document_chunks) where
+    similarities[i,j] contains the similarity score of document chunk i with document chunk j.
+    """
     similarities = model.similarity(embeddings, embeddings)
     similarities.fill_diagonal_(-100)  # Arbitrarily low to ignore self-similarity
     return similarities
 
 
+# TODO: Fix this algorithm, currently a document can be present in multiple bins
 def bin_documents(similarities: t.Tensor) -> list:
     """Create bins of similar documents based on similarity scores."""
     bins = []
@@ -46,7 +51,6 @@ def bin_documents(similarities: t.Tensor) -> list:
         # Get top k most similar documents
         top_k_indices = t.topk(similarity_scores, TOP_K).indices
 
-        # Filter based on minimum similarity and add to bin
         for j in top_k_indices:
             similarity_value = similarity_scores[j].item()
             if (
