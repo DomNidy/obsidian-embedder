@@ -12,9 +12,6 @@ import tiktoken
 # The endpoint we send our requests to (the server is hosted locally with LM studio)
 llm_endpoint = "http://127.0.0.1:1234/v1/chat/completions"
 
-# The model on the LM studio server we send our summary requests to
-model = "llama-3.2-3b-instruct"  # llama-3.2-1b-instruct
-
 # The system prompt used to guide the LLM into creating good chunk summaries
 system_prompt = """
 You will be provided with a chunk from a larger document. Summarize its purpose and topics in the following format:
@@ -49,12 +46,14 @@ def chunk_document(
 
 def write_multiple(output_file: str, chunks: List["str"]):
     """Write multiple document chunks or summaries to a single file, separated by newlines"""
-    with open(output_file, "w+") as f:
+    with open(output_file, "w+", encoding="utf-8") as f:
         for chunk in chunks:
             f.write(f"{chunk}\n")
 
 
-def request_chunk_summary(chunk_content: str, model: str) -> str:
+def request_chunk_summary(
+    chunk_content: str, model: str, temperature: float = 0.25, max_new_tokens: int = -1
+) -> str:
     """Request a summary for a chunk."""
     response = requests.post(
         "http://127.0.0.1:1234/v1/chat/completions",
@@ -66,8 +65,8 @@ def request_chunk_summary(chunk_content: str, model: str) -> str:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": chunk_content},
                 ],
-                "temperature": 0.2,
-                "max_tokens": -1,
+                "temperature": temperature,
+                "max_tokens": max_new_tokens,
                 "stream": "false",
             }
         ),
@@ -90,7 +89,7 @@ def write_chunk_summary_comparison(
         summaries
     ), "len(chunks) and len(summaries) must be equal. (Each chunk needs a summary)"
 
-    with open(output_file, "w") as f:
+    with open(output_file, "w", encoding="utf-8") as f:
         for chunk, summary in zip(chunks, summaries):
             wrapped_chunk = textwrap.fill(chunk, max_line_width)
             wrapped_summary = textwrap.fill(summary, max_line_width)
@@ -148,6 +147,30 @@ def get_file_content(file_path: str) -> str:
         return " ".join(content)
 
 
+def validate_arguments(args, parser):
+    """Validates command-line arguments."""
+    if args.chunk_size <= 0:
+        parser.error("Chunk size must be a positive integer")
+
+    if not (0 <= args.temperature <= 1):
+        parser.error("Temperature must be in the interval [0,1]")
+
+
+def print_configuration(args):
+    """Prints the current configuration settings to the console."""
+    print("\nCurrent Configuration:")
+    print("=" * 30)
+    print(f"Model             : {args.model}")
+    print(f"Document Path     : {args.document_path}")
+    print(f"Chunk Size        : {args.chunk_size} tokens")
+    print(f"Tokenizer         : {args.tokenizer}")
+    print(f"Temperature       : {args.temperature}")
+    print(
+        f"Max New Tokens    : {args.max_new_tokens if args.max_new_tokens != -1 else 'No limit'}"
+    )
+    print("=" * 30 + "\n")
+
+
 def main():
     # Parse command-line arguments
     parser = argparse.ArgumentParser(
@@ -162,17 +185,38 @@ def main():
         default=100,
         help="Size of each chunk in tokens (default: 100)",
     )
+
     parser.add_argument(
         "--tokenizer",
         type=str,
         default="gpt-4o",
         help="Tokenizer used to judge chunk size in tokens (default: gpt-4o)",
     )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="llama-3.2-3b-instruct",
+        help="Name of the model used to generate summaries, this is included in our requests to the LM Studio server. (default: llama-3.2-3b-instruct)",
+    )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.25,
+        help="Model temperature (a value in the interval [0,1], lower = more precision, higher = more creativity, default: 0.25)",
+    )
+    parser.add_argument(
+        "--max_new_tokens",
+        type=int,
+        default=-1,
+        help="Maximum number of tokens generated for each summary. -1 indicates no limit (default: -1)",
+    )
     args = parser.parse_args()
 
-    # Validate chunk size
-    if args.chunk_size <= 0:
-        parser.error("Chunk size must be a positive integer")
+    # Validate arguments
+    validate_arguments(args, parser)
+
+    # Print the current configuration
+    print_configuration(args)
 
     document_path = args.document_path
     # Read the contents of the document we want to chunk & summarize into a string
@@ -187,7 +231,14 @@ def main():
     start_summarizing = time()
     for i in range(len(chunks)):
         _start = time()
-        summaries.append(request_chunk_summary(chunks[i], model))
+        summaries.append(
+            request_chunk_summary(
+                chunks[i],
+                args.model,
+                temperature=args.temperature,
+                max_new_tokens=args.max_new_tokens,
+            )
+        )
         _end = time()
         print(
             f"Progress: {i + 1}/{len(chunks)} ({(i + 1) / len(chunks) * 100:.2f}%) - "
