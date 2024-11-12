@@ -4,6 +4,16 @@ _(This README is a W.I.P)_
 
 This repository contains scripts used to make managing your notes easier. Currently, there are two distinct features: **document embedding & similarity binning** and **documenting chunking with LLM generated chunk summaries**.
 
+To install dependencies easily, you can create a virtual environment, then install everything in `requirements.txt`:
+
+```sh
+python -m venv venv # create the virtual environment
+source venv/bin/activate # for windows, run: 'venv\Scripts\activate'
+pip install -r requirements.txt # install the dependencies
+```
+
+**Note:** It seems that the `torch` version specified in `requirements.txt` was not compiled with CUDA support. As such, similarity binning may be a bit slow.
+
 ## Document embedding
 
 Generate document embeddings for your Obsidian vault and organize them into groups (bins) based on semantic similarity. This utility is designed to help manage large Obsidian vaults with many documents, making it easier to identify redundant or poorly categorized documents.

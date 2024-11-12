@@ -6,6 +6,11 @@ import textwrap  # For pretty printing
 import re
 
 device = "cuda" if t.cuda.is_available() else "cpu"
+if device == "cpu":
+    print(
+        "WARNING: SentenceTransformer model will run on CPU instead of GPU, as such, binning will be slower.\n"
+        "If you have an NVIDIA GPU, ensure that your torch installation supports CUDA."
+    )
 
 # Load a pretrained Sentence Transformer model
 MODEL_NAME = "all-MiniLM-L6-v2"

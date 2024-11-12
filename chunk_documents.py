@@ -1,4 +1,5 @@
-import os
+import argparse
+from time import time
 from typing import List
 from math import ceil
 import requests
@@ -18,7 +19,7 @@ model = "llama-3.2-3b-instruct"  # llama-3.2-1b-instruct
 system_prompt = """
 You will be provided with a chunk from a larger document. Summarize its purpose and topics in the following format:
 
-The purpose of this chunk appears to be [Purpose of document], potentially covering [general topic]. It addresses the following key points: [Main purpose or subject]. [Briefly mention each key topic discussed, providing a concise context without unnecessary elaboration].
+This chunk's purpose is [purpose of document], potentially covering [general topic]. It addresses the following key points: [Main purpose or subject]. [Briefly mention each key topic discussed, providing a concise context without unnecessary elaboration].
 
 Make sure to respond strictly in paragraph format. Do not use bullet points, lists, or any other formatting. Your response should be continuous and clear. 
 
@@ -28,13 +29,20 @@ Here is the content:
 """
 
 
-def chunk_document(document_content: str, chunk_size: int = 2000) -> List["str"]:
-    """Return an array of chunks of a document, where each chunk is `chunk_size` in length."""
-    document_length = len(document_content)
+def chunk_document(
+    document_content: str, chunk_size_tokens: int = 1000, tokenizer: str = "gpt-4o"
+) -> List["str"]:
+    """Return an array of chunks of a document, where each chunk is `chunk_size` tokens in length."""
+    enc = tiktoken.encoding_for_model(tokenizer)
+    # Create an array of tokens for the content
+    tokenized_document = enc.encode(document_content)
+    # Total number of tokens present in the content
+    num_tokens_in_document = len(tokenized_document)
 
     chunks = []
-    for i in range(0, document_length, chunk_size):
-        chunks.append(document_content[i : i + chunk_size])
+    for i in range(0, num_tokens_in_document, chunk_size_tokens):
+        # Decode the tokens for a particular chunk (i.e. turn it back to the original content)
+        chunks.append(enc.decode(tokenized_document[i : i + chunk_size_tokens]))
 
     return chunks
 
@@ -74,6 +82,7 @@ def write_chunk_summary_comparison(
     output_file: str,
     chunks: List["str"],
     summaries: List["str"],
+    tokenizer_used: str = "gpt-4o",
     max_line_width: int = 100,
 ):
     """Write each chunk and its summary version to a text file, nicely formatted."""
@@ -85,6 +94,13 @@ def write_chunk_summary_comparison(
         for chunk, summary in zip(chunks, summaries):
             wrapped_chunk = textwrap.fill(chunk, max_line_width)
             wrapped_summary = textwrap.fill(summary, max_line_width)
+            # Get lengths in chars
+            char_length_chunk = len(chunk)
+            char_length_summary = len(summary)
+            # Get lengths in tokens
+            token_length_chunk = get_token_length(chunk, tokenizer_used)
+            token_length_summary = get_token_length(summary, tokenizer_used)
+
             f.write("==========")
             f.write("\n\nChunk Content: \n\n")
             f.write(wrapped_chunk)
@@ -92,8 +108,16 @@ def write_chunk_summary_comparison(
             f.write("\n\nChunk Summary: \n\n")
             f.write(wrapped_summary)
             f.write("\n----------")
-            f.write(f"\nOriginal length: {len(chunk)}\n")
-            f.write(f"\nSummary length: {len(summary)}\n\n")
+            f.write(f"\nOriginal length (chars): {char_length_chunk}")
+            f.write(f"\nSummary length (chars): {char_length_summary}")
+            f.write(
+                f"\nCompression ratio (chars): {char_length_chunk/char_length_summary:.4f}x\n"
+            )
+            f.write(f"\nOriginal length (tokens): {token_length_chunk}")
+            f.write(f"\nSummary length (tokens): {token_length_summary}")
+            f.write(
+                f"\nCompression ratio (tokens): {token_length_chunk/token_length_summary:.4f}x\n"
+            )
 
 
 def get_token_length(chunk: str, tokenizer="gpt-4o") -> int:
@@ -124,15 +148,57 @@ def get_file_content(file_path: str) -> str:
         return " ".join(content)
 
 
-if __name__ == "__main__":
-    document_path = sys.argv[1] if len(sys.argv) > 1 else exit("No document provided")
+def main():
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(
+        description="Split a document into chunks, then create summaries for each chunk."
+    )
+    parser.add_argument(
+        "document_path", type=str, help="Path to the document to summarize"
+    )
+    parser.add_argument(
+        "--chunk_size",
+        type=int,
+        default=100,
+        help="Size of each chunk in tokens (default: 100)",
+    )
+    parser.add_argument(
+        "--tokenizer",
+        type=str,
+        default="gpt-4o",
+        help="Tokenizer used to judge chunk size in tokens (default: gpt-4o)",
+    )
+    args = parser.parse_args()
+
+    # Validate chunk size
+    if args.chunk_size <= 0:
+        parser.error("Chunk size must be a positive integer")
+
+    document_path = args.document_path
     # Read the contents of the document we want to chunk & summarize into a string
     input_document = get_file_content(document_path)
-    os.path
     # Split document into multiple chunks
-    chunks = chunk_document(input_document, chunk_size=2000)
-    # Request a summary for each chunk
-    summaries = [request_chunk_summary(chunk, model) for chunk in chunks]
+    chunks = chunk_document(
+        input_document, chunk_size_tokens=args.chunk_size, tokenizer=args.tokenizer
+    )
+
+    # Request a summary for each chunk, while printing out the progress
+    summaries = []
+    start_summarizing = time()
+    for i in range(len(chunks)):
+        _start = time()
+        summaries.append(request_chunk_summary(chunks[i], model))
+        _end = time()
+        print(
+            f"Progress: {i + 1}/{len(chunks)} ({(i + 1) / len(chunks) * 100:.2f}%) - "
+            f"Last summary duration: {_end - _start:.2f} seconds",
+            end="\r",
+        )
+    end_summarizing = time()
+    # Clear the last progress line
+    print(" " * 80, end="\r")
+    # Print completion time
+    print(f"Finished summaries in {end_summarizing - start_summarizing:.2f} seconds")
 
     # Print out compression ratio
     print(f"Total chunk token count: {get_total_token_length(chunks)}")
@@ -152,3 +218,7 @@ if __name__ == "__main__":
     write_chunk_summary_comparison(
         f"{document_path}_chunk_summary_comparison.txt", chunks, summaries
     )
+
+
+if __name__ == "__main__":
+    main()
