@@ -54,7 +54,7 @@ def bin_documents(similarities: t.Tensor) -> list:
         already_binned_document_indices.add(i)
 
         # Get top k most similar documents
-        top_k_indices = t.topk(similarity_scores, TOP_K).indices
+        top_k_indices = t.topk(similarity_scores, min(len(similarities), TOP_K)).indices
 
         for j in top_k_indices:
             similarity_value = similarity_scores[j].item()

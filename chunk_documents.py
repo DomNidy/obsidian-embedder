@@ -1,4 +1,5 @@
 import argparse
+import os
 from time import time
 from typing import List
 from math import ceil
@@ -155,13 +156,19 @@ def validate_arguments(args, parser):
     if not (0 <= args.temperature <= 1):
         parser.error("Temperature must be in the interval [0,1]")
 
+    if not os.path.exists(args.output_dir):
+        print(f"Output directory '{args.output_dir}' does not exist, creating it.")
+        os.mkdir(args.output_dir)
 
-def print_configuration(args):
+
+def print_config(args):
     """Prints the current configuration settings to the console."""
     print("\nCurrent Configuration:")
     print("=" * 30)
     print(f"Model             : {args.model}")
-    print(f"Document Path     : {args.document_path}")
+    print(
+        f"Document Path(s)    : {list(map(lambda path: os.path.normpath(path), args.document_paths))}"
+    )
     print(f"Chunk Size        : {args.chunk_size} tokens")
     print(f"Tokenizer         : {args.tokenizer}")
     print(f"Temperature       : {args.temperature}")
@@ -177,13 +184,22 @@ def main():
         description="Split a document into chunks, then create summaries for each chunk."
     )
     parser.add_argument(
-        "document_path", type=str, help="Path to the document to summarize"
+        "document_paths",
+        nargs="*",
+        type=str,
+        help="Path(s) to the document(s) to summarize",
+    )
+    parser.add_argument(
+        "--output_dir",
+        type=str,
+        default="./",
+        help="What directory should we write the summaries to? Defaults to the current directory.",
     )
     parser.add_argument(
         "--chunk_size",
         type=int,
-        default=100,
-        help="Size of each chunk in tokens (default: 100)",
+        default=500,
+        help="The original document text will be split into chunks, each chunk will be this many tokens (default: 500)",
     )
 
     parser.add_argument(
@@ -201,8 +217,8 @@ def main():
     parser.add_argument(
         "--temperature",
         type=float,
-        default=0.25,
-        help="Model temperature (a value in the interval [0,1], lower = more precision, higher = more creativity, default: 0.25)",
+        default=0.15,
+        help="Model temperature (a value in the interval [0,1], lower = more precision, higher = more creativity, default: 0.15)",
     )
     parser.add_argument(
         "--max_new_tokens",
@@ -216,59 +232,75 @@ def main():
     validate_arguments(args, parser)
 
     # Print the current configuration
-    print_configuration(args)
+    print_config(args)
 
-    document_path = args.document_path
-    # Read the contents of the document we want to chunk & summarize into a string
-    input_document = get_file_content(document_path)
-    # Split document into multiple chunks
-    chunks = chunk_document(
-        input_document, chunk_size_tokens=args.chunk_size, tokenizer=args.tokenizer
-    )
+    for document_path in args.document_paths:
+        document_path = os.path.normpath(document_path)
+        print("Summarizing", document_path, "\n")
+        # Read the contents of the document we want to chunk & summarize into a string
+        input_document = get_file_content(document_path)
+        # Split document into multiple chunks
+        chunks = chunk_document(
+            input_document, chunk_size_tokens=args.chunk_size, tokenizer=args.tokenizer
+        )
 
-    # Request a summary for each chunk, while printing out the progress
-    summaries = []
-    start_summarizing = time()
-    for i in range(len(chunks)):
-        _start = time()
-        summaries.append(
-            request_chunk_summary(
-                chunks[i],
-                args.model,
-                temperature=args.temperature,
-                max_new_tokens=args.max_new_tokens,
+        # Request a summary for each chunk, while printing out the progress
+        summaries = []
+        start_summarizing = time()
+        for i in range(len(chunks)):
+            _start = time()
+            summaries.append(
+                request_chunk_summary(
+                    chunks[i],
+                    args.model,
+                    temperature=args.temperature,
+                    max_new_tokens=args.max_new_tokens,
+                )
             )
-        )
-        _end = time()
+            _end = time()
+            print(
+                f"Progress: {i + 1}/{len(chunks)} ({(i + 1) / len(chunks) * 100:.2f}%) - "
+                f"Last summary duration: {_end - _start:.2f} seconds",
+                end="\r",
+            )
+        end_summarizing = time()
+
+        file_name_without_ext = os.path.splitext(os.path.basename(document_path))[0]
+
+        # Clear the last progress line
+        print(" " * 80, end="\r")
+        # Print completion time
         print(
-            f"Progress: {i + 1}/{len(chunks)} ({(i + 1) / len(chunks) * 100:.2f}%) - "
-            f"Last summary duration: {_end - _start:.2f} seconds",
-            end="\r",
+            f"Finished summaries for {file_name_without_ext} in {end_summarizing - start_summarizing:.2f} seconds"
         )
-    end_summarizing = time()
-    # Clear the last progress line
-    print(" " * 80, end="\r")
-    # Print completion time
-    print(f"Finished summaries in {end_summarizing - start_summarizing:.2f} seconds")
 
-    # Print out compression ratio
-    print(f"Total chunk token count: {get_total_token_length(chunks)}")
-    print(f"Total summary token count: {get_total_token_length(summaries)}")
-    print(
-        f"Token compression ratio: {get_total_token_length(chunks)/get_total_token_length(summaries):.4f}x\n"
-    )
-    print(f"Total chunk character count: {get_total_character_length(chunks)}")
-    print(f"Total summary character count: {get_total_character_length(summaries)}")
-    print(
-        f"Character compression ratio: {get_total_character_length(chunks)/get_total_character_length(summaries):.4f}x"
-    )
+        # Print out compression ratio
+        print(f"Total chunk token count: {get_total_token_length(chunks)}")
+        print(f"Total summary token count: {get_total_token_length(summaries)}")
+        print(
+            f"Token compression ratio: {get_total_token_length(chunks)/get_total_token_length(summaries):.4f}x\n"
+        )
+        print(f"Total chunk character count: {get_total_character_length(chunks)}")
+        print(f"Total summary character count: {get_total_character_length(summaries)}")
+        print(
+            f"Character compression ratio: {get_total_character_length(chunks)/get_total_character_length(summaries):.4f}x\n"
+        )
 
-    # Save the created summaries to a single text file
-    write_multiple(f"{document_path}_summaries_only.txt", summaries)
-    # Create and write a chunk-summary pair comparison to a single text file
-    write_chunk_summary_comparison(
-        f"{document_path}_chunk_summary_comparison.txt", chunks, summaries
-    )
+        # Save the created summaries to a single text file
+        write_multiple(
+            os.path.join(
+                args.output_dir, f"{file_name_without_ext}_summaries_only.txt"
+            ),
+            summaries,
+        )
+        # Create and write a chunk-summary pair comparison to a single text file
+        write_chunk_summary_comparison(
+            os.path.join(
+                args.output_dir, f"{file_name_without_ext}_chunk_summary_comparison.txt"
+            ),
+            chunks,
+            summaries,
+        )
 
 
 if __name__ == "__main__":

@@ -236,6 +236,8 @@ if __name__ == "__main__":
 
     # load documents from obsidian vault
     document_paths = load_document_paths(config.directory)
+    for _, filepath in document_paths:
+        print(filepath)
     num_processes = config.processes
 
     start = time()
