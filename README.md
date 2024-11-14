@@ -51,11 +51,11 @@ This allows you to split a single document into many chunks and then create a su
 **Example:**
 
 ```sh
-python chunk_documents.py some_document.txt --chunk_size 300 --temperature 0.1 --model llama-3.2-1b-instruct
+python summarize_documents.py some_document.txt --chunk_size 500 --temperature 0.15 --model llama-3.2-1b-instruct --output_dir ./output
 ```
 
 This will produce two output files:
 
-- **`some_document.txt_chunk_summary_comparison.txt`:** This file contains each original chunk and its associated summary, along with the lengths of the two. Primarily used to inspect how good the LLM is doing at summarizing.
+- **`./output/some_document_chunk_summary_comparison.txt`:** This file contains each original chunk and its associated summary, along with the lengths of the two. Primarily used to inspect how good the LLM is doing at summarizing.
 
-- **`some_document.txt_summaries_only.txt`:** This file contains each chunk summary separated by newlines.
+- **`./output/some_document_summaries_only.txt`:** This file contains each chunk summary separated by newlines.

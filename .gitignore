@@ -3,6 +3,7 @@ __pycache__
 venv
 venv/*
 
+*.xml
 # ignore all txt files
 *.txt
 # except for requirements.txt
