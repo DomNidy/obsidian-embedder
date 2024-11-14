@@ -176,12 +176,6 @@ def chunk_content(
     return chunks
 
 
-def write_multiple(output_file: str, chunks: List["str"]):
-    """Write multiple document chunks or summaries to a single file, separated by newlines"""
-    with open(output_file, "w+", encoding="utf-8") as f:
-        for chunk in chunks:
-            f.write(f"{chunk}\n")
-
 
 def write_chunk_summary_comparison(
     output_file: str,
