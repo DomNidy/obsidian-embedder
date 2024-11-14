@@ -135,29 +135,32 @@ def request_chunk_summary(
     )
 
 
-def chunk_file(
-    document_content: str, chunk_size_tokens: int = 1000, tokenizer: str = "gpt-4o"
+def chunk_content(
+    content: str, chunk_size_tokens: int = 1000, tokenizer: str = "gpt-4o"
 ) -> List["DocumentChunk"]:
-    """Return an array of chunks of a document, where each chunk is `chunk_size` tokens in length."""
+    """
+    Return a `DocumentChunk` list from text content, where each chunk's content is `chunk_size` tokens in length.
+    Each `DocumentChunk` will record it's byte offset (relative to the start of the provided `content`)
+    """
     enc = tiktoken.encoding_for_model(tokenizer)
     # Create an array of tokens for the content
-    tokenized_document = enc.encode(document_content)
+    tokenized_content = enc.encode(content)
     # Total number of tokens present in the content
-    num_tokens_in_document = len(tokenized_document)
+    num_tokens_in_document = len(tokenized_content)
 
     chunks = []
-    # Keep track of the document content offset in bytes
-    document_offset = 0
+    # Keep track of the text content offset in bytes
+    offset = 0
 
     for i in range(0, num_tokens_in_document, chunk_size_tokens):
         # Decode the tokens for a particular chunk (i.e. turn it back to the original content)
-        text_chunk = enc.decode(tokenized_document[i : i + chunk_size_tokens])
+        text_chunk = enc.decode(tokenized_content[i : i + chunk_size_tokens])
 
         # We encode with utf-8 then take the length to ensure we're using byte offsets, and not
         # simply taking the length of the text string
         chunk_size_bytes = len(text_chunk.encode("utf-8"))
 
-        byte_offset_begin = document_offset
+        byte_offset_begin = offset
         byte_offset_end = byte_offset_begin + chunk_size_bytes
 
         # For each text chunk, create a DocumentChunk object containing it's metadata
@@ -168,7 +171,7 @@ def chunk_file(
         )
         chunks.append(document_chunk)
 
-        document_offset = byte_offset_end
+        offset = byte_offset_end
 
     return chunks
 
@@ -220,13 +223,6 @@ def write_chunk_summary_comparison(
             f.write(
                 f"\nCompression ratio (tokens): {token_length_chunk/max(token_length_summary,1):.4f}x\n"
             )
-
-
-def get_file_content(file_path: str) -> str:
-    """Reads the contents of the specified file and returns it as a string."""
-    with open(file_path, "r", encoding="utf-8") as f:
-        content = f.readlines()
-        return " ".join(content)
 
 
 def validate_arguments(args, parser):
@@ -352,8 +348,8 @@ def main():
             # Read the contents of the file we want to chunk & summarize into a string
             document_content = document.read()
             # Split file into multiple chunks
-            chunks = chunk_file(
-                document_content=document_content,
+            chunks = chunk_content(
+                content=document_content,
                 chunk_size_tokens=args.chunk_size,
                 tokenizer=args.tokenizer,
             )
@@ -400,10 +396,10 @@ def main():
         )
 
         # Save the created summaries to a single text file
-        write_multiple(
-            output_summary_path,
-            summaries,
-        )
+        with open(output_summary_path, "w+") as f:
+            for summary in summaries:
+                f.write(f"{summary}\n")
+
         # Create and write a chunk-summary pair comparison to a single text file
         write_chunk_summary_comparison(
             output_comparison_path,
