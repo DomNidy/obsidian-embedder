@@ -5,6 +5,11 @@ from time import time
 from typing import Any, Dict, List, Optional
 
 from config import SummarizerConfig, SummaryOutputConfig
+from chunk_document import (
+    DocumentChunk,
+    DocumentChunkSummary,
+    get_token_length,
+)
 
 
 def validate_arguments(args, parser):
@@ -63,6 +68,20 @@ def print_summary_outcome(
     print(
         f"{file_name} total character compression ratio: {total_char_len_original_chunks/max(total_char_len_summaries,1):.4f}x\n"
     )
+
+
+# Used to log statistics of a document summary
+def calculate_summary_statistics(
+    chunks: List["DocumentChunk"], summaries: List["DocumentChunkSummary"]
+):
+    return {
+        "token_len_chunks": sum(get_token_length(chunk.content) for chunk in chunks),
+        "token_len_summaries": sum(
+            get_token_length(summary.content) for summary in summaries
+        ),
+        "char_len_chunks": sum(len(chunk) for chunk in chunks),
+        "char_len_summaries": sum(len(summary) for summary in summaries),
+    }
 
 
 @dataclass

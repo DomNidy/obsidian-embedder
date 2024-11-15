@@ -6,10 +6,6 @@ from summarize import process_document
 from utils import print_configs, validate_arguments
 
 
-# The endpoint we send our requests to (the server is hosted locally with LM studio)
-llm_endpoint = "http://127.0.0.1:1234/v1/chat/completions"
-
-
 def main():
     # Parse command-line arguments
     parser = argparse.ArgumentParser(

@@ -1,13 +1,45 @@
 from io import TextIOWrapper
 import json
+import logging
 import os
 
 import requests
 
 from prompt import PromptChain, PromptChainBuilder
-from chunk_document import DocumentChunkSummary, chunk_content, get_token_length
+from chunk_document import DocumentChunkSummary, chunk_content
 from config import SummarizerConfig, SummaryOutputHandler
-from utils import Timer, print_summary_outcome
+from utils import Timer, calculate_summary_statistics, print_summary_outcome
+
+
+LLM_API_ENDPOINT = "http://127.0.0.1:1234/v1/chat/completions"
+
+
+def _build_request_body(
+    prompt_chain: PromptChain,
+    model: str,
+    temperature: float,
+    max_new_tokens: int,
+) -> dict:
+    """
+    Creates JSON request body that will be sent to the LLM api.
+    The schema defined below is specifically tailored to an LM studio server.
+    """
+    return {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": prompt_chain.system_prompt},
+            {"role": "user", "content": prompt_chain.user_prompt},
+        ],
+        "temperature": temperature,
+        "max_tokens": max_new_tokens,
+        "stream": False,  # Use boolean instead of string
+    }
+
+
+class LLMAPIError(Exception):
+    """Exception for LLM API request related errors"""
+
+    pass
 
 
 def request_chunk_summary(
@@ -16,28 +48,43 @@ def request_chunk_summary(
     temperature: float = 0.25,
     max_new_tokens: int = -1,
 ) -> "DocumentChunkSummary":
-    """Request a summary for a `DocumentChunk`"""
-    response = requests.post(
-        "http://127.0.0.1:1234/v1/chat/completions",
-        headers={"Content-Type": "application/json"},
-        data=json.dumps(
-            {
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": prompt_chain.system_prompt},
-                    {"role": "user", "content": prompt_chain.user_prompt},
-                ],
-                "temperature": temperature,
-                "max_tokens": max_new_tokens,
-                "stream": "false",
-            }
-        ),
-    ).json()
+    """
+    Request a summary for a DocumentChunk from the LLM API endpoint.
 
-    return DocumentChunkSummary(
-        content=response["choices"][0]["message"]["content"],
-        original=prompt_chain.original_chunk_content,
-    )
+    Args:
+        `prompt_chain`: PromptChain object containing system and user prompts
+        `model`: Name of the model to use
+        `temperature`: Float between 0 and 1 controlling randomness
+        `max_new_tokens`: Maximum number of tokens to generate (-1 for unlimited)
+
+    Returns:
+        DocumentChunkSummary containing the generated summary
+
+    Raises:
+        LLMAPIError: If API request fails
+    """
+
+    request_body = _build_request_body(prompt_chain, model, temperature, max_new_tokens)
+
+    try:
+        response = requests.post(
+            LLM_API_ENDPOINT,
+            headers={"Content-Type": "application/json"},
+            json=request_body,
+        )
+        response.raise_for_status()
+
+        response_data = response.json()
+        summary = response_data["choices"][0]["message"]["content"]
+
+        return DocumentChunkSummary(
+            content=summary,
+            original=prompt_chain.original_chunk_content,
+        )
+
+    except Exception as e:
+        logging.error(f"Failed to generate summary: {str(e)}")
+        raise LLMAPIError(f"Failed to generate summary: {str(e)}")
 
 
 def process_document(
@@ -45,6 +92,18 @@ def process_document(
     summarizer_config: SummarizerConfig,
     summary_output_handler: SummaryOutputHandler,
 ):
+    """
+    Process a document by chunking it and generating summaries.
+
+    Args:
+        `document`: The input document to process
+        `summarizer_config`: Configuration for the summarization process
+        `summary_output_handler`: Handler for saving summaries
+
+    Raises:
+        `ValueError`: If document is invalid
+        `RuntimeError`: If processing fails
+    """
     file_name_without_ext = os.path.splitext(os.path.basename(document.name))[0]
 
     with Timer(
@@ -94,19 +153,15 @@ def process_document(
                 summaries.append(chunk_summary)
 
     # Compute token and char lengths of the original and summaries, then print them out
-    total_token_len_chunks = sum(get_token_length(chunk.content) for chunk in chunks)
-    total_token_len_summaries = sum(
-        get_token_length(summary.content) for summary in summaries
-    )
-    total_char_len_chunks = sum(len(chunk) for chunk in chunks)
-    total_char_len_summaries = sum(len(summary) for summary in summaries)
+    stats = calculate_summary_statistics(chunks, summaries)
+
     print("")
     print_summary_outcome(
         file_name_without_ext,
-        total_token_len_chunks,
-        total_token_len_summaries,
-        total_char_len_chunks,
-        total_char_len_summaries,
+        stats["token_len_chunks"],
+        stats["token_len_summaries"],
+        stats["char_len_chunks"],
+        stats["char_len_summaries"],
     )
 
     summary_output_handler.save(file_name_without_ext, summaries, chunks)
