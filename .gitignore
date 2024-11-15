@@ -3,6 +3,10 @@ __pycache__
 venv
 venv/*
 
+test_data
+test_data/*
+tmp/*
+
 *.xml
 # ignore all txt files
 *.txt

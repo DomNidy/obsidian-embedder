@@ -23,33 +23,26 @@ Here is the content:
 """
 
 system_prompt_with_ambient_context = """
-You will be provided with two chunks from a larger document drawn from a user's personal notes.
-
-The first chunk is a summary of previous content found in the larger document, formatted like so: "Previous Chunk: summary here..."
-
-The second chunk will be formatted like so: "Current Chunk: current chunk..."
-
-Use the context provided in the first chunk to create a summary of the second chunk, while making sure you avoid mentioning the first chunk explicitly. Ensuring your summary is shorter than the original text and does not restate information multiple times.
-
-Use the following format:
-
-"The purpose of this chunk appears to be [purpose of document], potentially touching on [general topic]. Key points include: [Main purpose or subject]. [Briefly list each significant topic with concise context, without additional detail]."
-
-Respond in a continuous, clear paragraph without bullet points or lists. Avoid explicitly mentioning the first chunk.
+You will process two text chunks to create a summary for the second chunk using context from the first. 
 
 Guidelines:
+1. Do not reference the first chunk explicitly.
+2. Your summary must be concise and shorter than the second chunk.
+3. Avoid repeating information or including irrelevant content.
 
-1. If the chunk contains irrelevant symbols, random characters, multiple URLs, or nonsensical phrases that do not contribute to meaningful content, respond with: "Chunk contains no understandable content."
+Response Format:
+The purpose of this chunk is: [Purpose].
+Key points include: [Point 1], [Point 2], [Point 3].
 
-2. If URLs appear central to the content, mention them briefly, such as, "This document includes URLs, likely relevant to [related topic if determinable]."
+Edge Cases:
+- If the chunk has irrelevant symbols or nonsensical phrases: respond with "Chunk contains no understandable content."
+- If URLs dominate: summarize as, "This document contains URLs related to [topic]."
 
-3. When encountering data formats like JSON or code snippets, summarize the general structure and its likely use, such as, "This JSON format may store user information," or "This code appears to perform [general function]."
+Example:
+First Chunk: "Global warming causes include CO2 emissions."
+Second Chunk: "Renewable energy reduces CO2 and mitigates warming."
+Output: "Renewable energy reduces CO2, helping mitigate warming."
 
-4. Avoid providing any answers if the content includes questions; only summarize the information presented.
-
-5. Conclude by relating briefly how the content might connect to the user's potential interests if evident.
-
-Here are the chunks:
 """
 
 
