@@ -8,33 +8,11 @@ from time import time
 from io import TextIOWrapper
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
+from prompt import  PromptChainBuilder, PromptChain
 
 
 # The endpoint we send our requests to (the server is hosted locally with LM studio)
 llm_endpoint = "http://127.0.0.1:1234/v1/chat/completions"
-
-# The system prompt used to guide the LLM into creating good chunk summaries
-system_prompt = """
-You will be provided with a chunk from a larger document, typically drawn from a user's personal notes. Summarize the chunk's purpose and topics, ensuring that your summary is significantly shorter than the original text and does not restate information multiple times. Use the following format:
-
-"The purpose of this chunk appears to be [purpose of document], potentially touching on [general topic]. Key points include: [Main purpose or subject]. [Briefly list each significant topic with concise context, without additional detail]."
-
-Respond in a continuous, clear paragraph without bullet points or lists.
-
-Guidelines:
-
-1. If the chunk contains irrelevant symbols, random characters, multiple URLs, or nonsensical phrases that do not contribute to meaningful content, respond with: "Chunk contains no understandable content."
-
-2. If URLs appear central to the content, mention them briefly, such as, "This document includes URLs, likely relevant to [related topic if determinable]."
-
-3. When encountering data formats like JSON or code snippets, summarize the general structure and its likely use, such as, "This JSON format may store user information," or "This code appears to perform [general function]."
-
-4. Avoid providing any answers if the content includes questions; only summarize the information presented.
-
-5. Conclude by relating briefly how the content might connect to the user's potential interests if evident.
-
-Here is the content:
-"""
 
 
 def get_token_length(content: str, tokenizer="gpt-4o") -> int:
@@ -107,7 +85,7 @@ class DocumentChunkSummary:
 
 
 def request_chunk_summary(
-    chunk: DocumentChunk,
+    prompt_chain: PromptChain,
     model: str,
     temperature: float = 0.25,
     max_new_tokens: int = -1,
@@ -120,8 +98,8 @@ def request_chunk_summary(
             {
                 "model": model,
                 "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": chunk.content},
+                    {"role": "system", "content": prompt_chain.system_prompt},
+                    {"role": "user", "content": prompt_chain.user_prompt},
                 ],
                 "temperature": temperature,
                 "max_tokens": max_new_tokens,
@@ -131,7 +109,8 @@ def request_chunk_summary(
     ).json()
 
     return DocumentChunkSummary(
-        content=response["choices"][0]["message"]["content"], original=chunk
+        content=response["choices"][0]["message"]["content"],
+        original=prompt_chain.original_chunk_content,
     )
 
 
@@ -174,7 +153,6 @@ def chunk_content(
         offset = byte_offset_end
 
     return chunks
-
 
 
 def write_chunk_summary_comparison(
@@ -355,9 +333,26 @@ def main():
                     f"Summarize chunk {i} in {file_name_without_ext}",
                     print_kwargs={"end": "\r"},
                 ):
+
+                    # Create a "prompt chain" to simplify including previous "ambient context"
+                    # from prior document chunk summaries. This updates the system and user prompt accordingly
+                    prompt_chain_builder = PromptChainBuilder().set_chunk_content(
+                        chunks[i].content
+                    )
+
+                    # If we've previously created summaries for this document, include it in the ambient context
+                    if summaries:
+                        prev_chunk: DocumentChunkSummary = summaries[-1]
+                        prompt_chain_builder.set_ambient_context(prev_chunk.content)
+
+                    prompt_chain = prompt_chain_builder.build()
+
                     summaries.append(
                         request_chunk_summary(
-                            chunks[i], args.model, args.temperature, args.max_new_tokens
+                            prompt_chain,
+                            args.model,
+                            args.temperature,
+                            args.max_new_tokens,
                         )
                     )
 
