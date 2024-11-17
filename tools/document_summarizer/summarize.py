@@ -36,6 +36,15 @@ def _build_request_body(
     }
 
 
+def _validate_llm_response(response: str):
+    """
+    Checks for undesired tokens/structure in the LLM summary response.
+    For example, we don't want linebreaks.
+    """
+    response = response.replace("\n", " ").replace("  ", " ")
+    return response
+
+
 class LLMAPIError(Exception):
     """Exception for LLM API request related errors"""
 
@@ -75,7 +84,9 @@ def request_chunk_summary(
         response.raise_for_status()
 
         response_data = response.json()
-        summary = response_data["choices"][0]["message"]["content"]
+        summary = _validate_llm_response(
+            response_data["choices"][0]["message"]["content"]
+        )
 
         return DocumentChunkSummary(
             content=summary,

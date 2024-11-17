@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from io import TextIOWrapper
 import os
+from pathlib import Path
 from time import time
 from typing import Any, Dict, List, Optional
 
@@ -20,9 +21,36 @@ def validate_arguments(args, parser):
     if not (0 <= args.temperature <= 1):
         parser.error("Temperature must be in the interval [0,1]")
 
+    # Validate output directory
     if not os.path.exists(args.output_dir):
         print(f"Output directory '{args.output_dir}' does not exist, creating it.")
         os.mkdir(args.output_dir)
+
+    # Validate input document directory (if provided)
+    if args.document_dir:
+        if not os.path.isdir(args.document_dir):
+            parser.error(f"The directory: {args.document_dir} does not exist.")
+        # ensure the directory has at least one document
+        documents = list(Path(args.document_dir).glob("*.md")) + list(
+            Path(args.document_dir).glob("*.txt")
+        )
+        if not documents:
+            parser.error(f"No documents found in directory {args.document_dir}")
+
+
+def load_documents_from_directory(directory: str) -> List["TextIOWrapper"]:
+    """
+    Read all .md and .txt files from a directory into a TextIOWrapper
+    """
+    documents = []
+    # get all .md files
+    for file_path in Path(directory).glob("*.md"):
+        documents.append(open(file_path, mode="r", encoding="utf-8"))
+    # get all .txt files
+    for file_path in Path(directory).glob("*.txt"):
+        documents.append(open(file_path, mode="r", encoding="utf-8"))
+
+    return documents
 
 
 def print_configs(

@@ -3,7 +3,7 @@ from io import TextIOWrapper
 from typing import List
 from config import SummarizerConfig, SummaryOutputConfig, SummaryOutputHandler
 from summarize import process_document
-from utils import print_configs, validate_arguments
+from utils import load_documents_from_directory, print_configs, validate_arguments
 
 
 def main():
@@ -16,6 +16,11 @@ def main():
         nargs="*",
         type=argparse.FileType("r", encoding="utf-8"),
         help="Path(s) to the document(s) to summarize",
+    )
+    parser.add_argument(
+        "--document_dir",
+        type=str,
+        help="Optional path to a directory containing markdown (.md) and text (.txt) files to summarize. The documents contained in this directory will be combined with the document_paths array.",
     )
     parser.add_argument(
         "--output_dir",
@@ -65,6 +70,11 @@ def main():
 
     # Type annotate args.document_paths as TextIOWrapper list
     documents: List["TextIOWrapper"] = args.document_paths
+
+    # If `document_dir` argument was provided, load all documents from that directory
+    if args.document_dir is not None:
+        print(f"Loading documents from {args.document_dir}")
+        documents.extend(load_documents_from_directory(args.document_dir))
 
     # Configuration setup
     summarizer_config = SummarizerConfig(
