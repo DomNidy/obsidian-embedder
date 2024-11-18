@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# This script will search for all files in the current working directory that are
+# This script will search for all files in the target directory that are
 # suffixed with "_summaries_only.txt". The content of all of these files will be
 # converted into XML format. This is intended to be used with on the summary files
 # produced by the document_summarizer.
@@ -10,20 +10,21 @@
 #     <Chunk>Some content here...</Chunk>
 # </FileChunks>
 
-if [ $# -eq 0 ]; then
-    echo "Error: Output file path is required"
-    echo "Usage: $0 <output_file_path>"
+if [ $# -lt 2 ]; then
+    echo "Error: Both target directory (of chunks) and output file path is required"
+    echo "Usage: $0 <target_dir> <output_file_path>"
     exit 1
 fi
 
-output_file=$1
+target_dir=$1
+output_file=$2
 
 # Create or clear the output file and add XML header and root opening tag
 echo '<?xml version="1.0" encoding="UTF-8"?>' >$output_file
 echo '<root>' >>$output_file
 
 # Find all files ending with summaries_only.txt and process them
-find . -regex .*summaries_only.txt$ -print0 | while IFS= read -r -d '' file; do
+find $target_dir -regex .*summaries_only.txt$ -print0 | while IFS= read -r -d '' file; do
     # Write opening XML tag with file name
     echo "<FileChunks file_name=\"$file\">" >>$output_file
 
