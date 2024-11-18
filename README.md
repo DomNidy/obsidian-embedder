@@ -51,7 +51,7 @@ This allows you to split a single document into many chunks and then create a su
 **Example:**
 
 ```sh
-python summarize_documents.py some_document.txt --chunk_size 500 --temperature 0.15 --model llama-3.2-1b-instruct --output_dir ./output
+python tools/document_summarizer/main.py some_document.txt --chunk_size 500 --temperature 0.15 --model llama-3.2-1b-instruct --output_dir ./output
 ```
 
 This will produce two output files:
@@ -59,3 +59,13 @@ This will produce two output files:
 - **`./output/some_document_chunk_summary_comparison.txt`:** This file contains each original chunk and its associated summary, along with the lengths of the two. Primarily used to inspect how good the LLM is doing at summarizing.
 
 - **`./output/some_document_summaries_only.txt`:** This file contains each chunk summary separated by newlines.
+
+### Pipeline for chunking, summarizing, and preparing for RAG systems
+
+1. **Document Source:** Create (or find an existing) a directory of documents (.txt, .md) files that you would like to perform RAG on. Example: `/my_documents`
+
+2. **Chunking & Summarizing:** Split documents into chunks and create summaries of each chunk. This extracts the key concepts, compresses the token count, and generally speaking, makes the data more suitable for RAG. This step can be performed with the document summarizer tool, example: `python tools/document_summarizer/main.py --document_dir "/my_documents" --output_dir "./summaries"`
+
+3. **Combining Summaries:** The output of the summarizer tool is a large list of .txt files, one for each document input to the tool. To combine these summaries into a single structured XML file, you can run the `tools/document_summarizer/combine_summaries.sh` script, example: `tools/document_summarizer/combine_summaries.sh ./summaries combined_summaries.xml`
+
+4. **Setup Vector DB:** _TODO: Finish this_
